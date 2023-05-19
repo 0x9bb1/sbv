@@ -1,12 +1,9 @@
 use anyhow::Result;
 use qdrant_client::client::{QdrantClient, QdrantClientConfig};
-use qdrant_client::prelude::{SearchPoints};
+use qdrant_client::prelude::SearchPoints;
 use qdrant_client::qdrant::ScoredPoint;
 
 use tracing::{event, instrument};
-
-
-
 
 // const AK: &'static str = "BH5Qakay3lbRsEjDNKyKCiSDf4PAP0pWWeVabEDumJ_pUMIzVcMKKg";
 const AK: &'static str = "qdrant_api_key";
@@ -42,7 +39,7 @@ pub async fn search(
             filter: None,
             limit: limit.unwrap_or(10),
             with_vectors: None,
-            with_payload: None,
+            with_payload: Some(true.into()),
             params: None,
             score_threshold: None,
             offset: None,

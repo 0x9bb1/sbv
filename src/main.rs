@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -9,7 +10,9 @@ use axum::routing::get;
 use axum::{Json, Router};
 use qdrant_client::client::QdrantClient;
 use qdrant_client::prelude::point_id::PointIdOptions;
-use qdrant_client::qdrant::ScoredPoint;
+use qdrant_client::prelude::Value;
+
+use qdrant_client::qdrant::{ScoredPoint};
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -61,38 +64,57 @@ struct Color {
     color: String,
 }
 
-#[derive(Serialize)]
-struct SearchResult {
-    id: String,
-    score: f32,
-}
-
 async fn handle_search(
     State(client): State<Arc<QdrantClient>>,
     Query(payload): Query<Color>,
-) -> Result<Json<Vec<SearchResult>>, AppError> {
+) -> Result<SearchResult, AppError> {
     let param = payload.color;
     let params = vec![param];
     let output = embeddings::encode(params).await?;
     let vector = &output[0];
 
     let res: Vec<ScoredPoint> = qdrant::search(&client, COLLECTION_NAME, vector, None).await?;
-    let result = res
-        .into_iter()
-        .map(|x| SearchResult {
-            id: match x.id {
-                Some(id) => match id.point_id_options {
-                    Some(PointIdOptions::Uuid(val)) => val,
-                    Some(PointIdOptions::Num(val)) => val.to_string(),
-                    None => "".to_string(),
-                },
-                None => "".to_string(),
-            },
-            score: x.score,
-        })
-        .collect::<Vec<SearchResult>>();
 
-    Ok(Json(result))
+    Ok(SearchResult(res))
+}
+
+struct SearchResult(Vec<ScoredPoint>);
+
+#[derive(Serialize)]
+struct SearchResultItem {
+    id: String,
+    score: f32,
+    payload: HashMap<String, Value>,
+}
+
+impl IntoResponse for SearchResult {
+    fn into_response(self) -> Response {
+        let items: Vec<SearchResultItem> = self
+            .0
+            .into_iter()
+            .map(|point| {
+                SearchResultItem {
+                    id: match point.id {
+                        None => "".to_string(),
+                        Some(id) => match id.point_id_options {
+                            None => "".to_string(),
+                            Some(id) => match id {
+                                PointIdOptions::Num(id) => id.to_string(),
+                                PointIdOptions::Uuid(id) => id,
+                            },
+                        },
+                    },
+                    score: point.score,
+                    payload: point.payload,
+                }
+            })
+            .collect::<Vec<SearchResultItem>>();
+
+        let body = Json(json!({
+            "result": items,
+        }));
+        (StatusCode::OK, body).into_response()
+    }
 }
 
 // Make our own error that wraps `anyhow::Error`.

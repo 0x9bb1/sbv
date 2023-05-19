@@ -1,9 +1,9 @@
-use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use lazy_static::lazy_static;
 use rust_bert::pipelines::sentence_embeddings::{
     Embedding, SentenceEmbeddingsBuilder, SentenceEmbeddingsModel, SentenceEmbeddingsModelType,
 };
+use std::sync::{Arc, Mutex};
 use tracing::event;
 
 lazy_static! {
