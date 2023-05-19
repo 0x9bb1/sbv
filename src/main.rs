@@ -16,6 +16,7 @@ use qdrant_client::qdrant::{ScoredPoint};
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tracing_subscriber::fmt::time;
 
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -35,7 +36,10 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "search_by_vector=trace".into()),
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_timer(time::LocalTime::rfc_3339())
+        )
         .init();
     let client = Arc::new(qdrant::make_client().await?);
 
