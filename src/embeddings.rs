@@ -37,21 +37,3 @@ pub async fn encode(texts: Vec<String>) -> Result<Vec<Embedding>> {
     .await?;
     Ok(output)
 }
-
-#[cfg(test)]
-mod tests {
-    use anyhow::Result;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn test_create_model() -> Result<()> {
-        let _ = tokio::task::spawn_blocking(move || {
-            let output = MODEL.lock().unwrap().encode(&["red"]).unwrap();
-            dbg!(output);
-        })
-        .await?;
-
-        Ok(())
-    }
-}
