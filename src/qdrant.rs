@@ -1,9 +1,12 @@
 use anyhow::Result;
 use qdrant_client::client::{QdrantClient, QdrantClientConfig};
-use qdrant_client::prelude::SearchPoints;
+use qdrant_client::prelude::{Payload, PointStruct, SearchPoints};
 use qdrant_client::qdrant::ScoredPoint;
 
+use crate::embeddings;
+use crate::entity::PayloadRequest;
 use tracing::{event, instrument};
+use uuid::Uuid;
 
 // const AK: &'static str = "BH5Qakay3lbRsEjDNKyKCiSDf4PAP0pWWeVabEDumJ_pUMIzVcMKKg";
 const AK: &'static str = "qdrant_api_key";
@@ -53,24 +56,27 @@ pub async fn search(
     Ok(search_result.result)
 }
 
-// pub async fn save(client: &QdrantClient, collection_name: &str, value: &str) -> Result<()> {
-//     let payload: Payload = json!(
-//         {
-//             "color": value,
-//         }
-//     )
-//     .try_into()
-//     .unwrap();
-//
-//     let id = Uuid::new_v4();
-//     let params = vec![value.to_string()];
-//     let output = embeddings::encode(params).await?;
-//     let vector = &output[0];
-//     let points = vec![PointStruct::new(id.to_string(), vector.clone(), payload)];
-//     let response = client
-//         .upsert_points_blocking(collection_name, points, None)
-//         .await?;
-//     dbg!(response);
-//
-//     Ok(())
-// }
+#[instrument(name = "save", skip(client, req))]
+pub async fn save(client: &QdrantClient, collection_name: &str, req: PayloadRequest) -> Result<()> {
+    let start = std::time::Instant::now();
+
+    let mut payload: Payload = Payload::new();
+    payload.insert(req.key, req.value.clone());
+    let id = Uuid::new_v4();
+    let params = vec![req.value];
+    let output = embeddings::encode(params).await?;
+
+    event!(tracing::Level::INFO, "encode took {:?}", start.elapsed());
+
+    let start = std::time::Instant::now();
+
+    let vector = &output[0];
+    let points = vec![PointStruct::new(id.to_string(), vector.clone(), payload)];
+
+    let _response = client.upsert_points(collection_name, points, None).await?;
+    // dbg!(response);
+
+    event!(tracing::Level::INFO, "save took {:?}", start.elapsed());
+
+    Ok(())
+}

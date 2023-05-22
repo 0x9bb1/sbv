@@ -1,29 +1,21 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
-
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use qdrant_client::client::QdrantClient;
-use qdrant_client::prelude::point_id::PointIdOptions;
-use qdrant_client::prelude::Value;
-
-use qdrant_client::qdrant::{ScoredPoint};
-
-use serde::{Deserialize, Serialize};
+use qdrant_client::qdrant::ScoredPoint;
 use serde_json::json;
 use tracing_subscriber::fmt::time;
-
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+use crate::entity::{AppError, PayloadRequest, ResultData, SearchResultItem};
 use crate::graceful_shutdown::shutdown_signal;
 
 mod embeddings;
+mod entity;
 mod graceful_shutdown;
 mod qdrant;
 
@@ -36,16 +28,14 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "search_by_vector=trace".into()),
         )
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_timer(time::LocalTime::rfc_3339())
-        )
+        .with(tracing_subscriber::fmt::layer().with_timer(time::LocalTime::rfc_3339()))
         .init();
     let client = Arc::new(qdrant::make_client().await?);
 
     let app = Router::new()
         .route("/", get(index))
         .route("/search", get(handle_search))
+        .route("/save", post(handle_save))
         .with_state(client);
 
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
@@ -63,86 +53,32 @@ async fn index() -> Json<serde_json::Value> {
     }))
 }
 
-#[derive(Deserialize)]
-struct Color {
-    color: String,
-}
-
 async fn handle_search(
     State(client): State<Arc<QdrantClient>>,
-    Query(payload): Query<Color>,
-) -> Result<SearchResult, AppError> {
-    let param = payload.color;
+    Query(payload): Query<PayloadRequest>,
+) -> Result<Json<ResultData<Vec<SearchResultItem>>>, AppError> {
+    let param = payload.value;
     let params = vec![param];
     let output = embeddings::encode(params).await?;
     let vector = &output[0];
 
-    let res: Vec<ScoredPoint> = qdrant::search(&client, COLLECTION_NAME, vector, None).await?;
+    let res: Vec<ScoredPoint> =
+        qdrant::search(&client, COLLECTION_NAME, vector, payload.limit).await?;
 
-    Ok(SearchResult(res))
+    let items = res
+        .into_iter()
+        .map(|p| SearchResultItem::new_from_scored_point(p))
+        .collect::<Vec<SearchResultItem>>();
+    Ok(Json(ResultData::new(items)))
 }
 
-struct SearchResult(Vec<ScoredPoint>);
+async fn handle_save(
+    State(client): State<Arc<QdrantClient>>,
+    Json(payload): Json<PayloadRequest>,
+) -> Result<Json<ResultData<()>>, AppError> {
+    let _result = qdrant::save(&client, COLLECTION_NAME, payload).await?;
 
-#[derive(Serialize)]
-struct SearchResultItem {
-    id: String,
-    score: f32,
-    payload: HashMap<String, Value>,
-}
-
-impl IntoResponse for SearchResult {
-    fn into_response(self) -> Response {
-        let items: Vec<SearchResultItem> = self
-            .0
-            .into_iter()
-            .map(|point| {
-                SearchResultItem {
-                    id: match point.id {
-                        None => "".to_string(),
-                        Some(id) => match id.point_id_options {
-                            None => "".to_string(),
-                            Some(id) => match id {
-                                PointIdOptions::Num(id) => id.to_string(),
-                                PointIdOptions::Uuid(id) => id,
-                            },
-                        },
-                    },
-                    score: point.score,
-                    payload: point.payload,
-                }
-            })
-            .collect::<Vec<SearchResultItem>>();
-
-        let body = Json(json!({
-            "result": items,
-        }));
-        (StatusCode::OK, body).into_response()
-    }
-}
-
-// Make our own error that wraps `anyhow::Error`.
-struct AppError(anyhow::Error);
-
-// Tell axum how to convert `AppError` into a response.
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        let body = Json(json!({
-            "error": self.0.to_string(),
-        }));
-        (StatusCode::INTERNAL_SERVER_ERROR, body).into_response()
-    }
-}
-
-// This enables using `?` on functions that return `Result<_, anyhow::Error>` to turn them into
-// `Result<_, AppError>`. That way you don't need to do that manually.
-impl<E> From<E> for AppError
-where
-    E: Into<anyhow::Error>,
-{
-    fn from(err: E) -> Self {
-        Self(err.into())
-    }
+    Ok(Json(ResultData::new(())))
 }
 
 #[cfg(test)]
