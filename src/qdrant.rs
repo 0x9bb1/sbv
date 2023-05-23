@@ -8,7 +8,6 @@ use crate::entity::PayloadRequest;
 use tracing::{event, instrument};
 use uuid::Uuid;
 
-// const AK: &'static str = "BH5Qakay3lbRsEjDNKyKCiSDf4PAP0pWWeVabEDumJ_pUMIzVcMKKg";
 const AK: &'static str = "qdrant_api_key";
 
 const URL: &'static str =
