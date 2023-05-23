@@ -1,1 +1,1 @@
-# search_by_vector
+# Keyword search by vector
