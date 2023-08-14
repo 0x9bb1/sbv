@@ -23,13 +23,7 @@ const COLLECTION_NAME: &str = "test";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "search_by_vector=trace".into()),
-        )
-        .with(tracing_subscriber::fmt::layer().with_timer(time::LocalTime::rfc_3339()))
-        .init();
+    tracing_init();
     let client = Arc::new(qdrant::make_client().await?);
 
     let app = Router::new()
@@ -47,9 +41,19 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+fn tracing_init() {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "sbv=trace".into()),
+        )
+        .with(tracing_subscriber::fmt::layer().with_timer(time::LocalTime::rfc_3339()))
+        .init();
+}
+
 async fn index() -> Json<serde_json::Value> {
     Json(json!({
-        "message": "Hello, World!",
+        "message": "Hello, sbv!",
     }))
 }
 
@@ -86,7 +90,6 @@ mod tests {
     #[test]
     fn vec_init() {
         let v = vec![12.; 10];
-        dbg!(&v);
-        assert_eq!(v.len(), 10 as usize);
+        assert_eq!(v.len(), 10usize);
     }
 }

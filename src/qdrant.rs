@@ -5,13 +5,14 @@ use qdrant_client::qdrant::ScoredPoint;
 
 use crate::embeddings;
 use crate::entity::PayloadRequest;
+use tracing::log::debug;
 use tracing::{event, instrument};
 use uuid::Uuid;
 
 const AK: &'static str = "qdrant_api_key";
 
 const URL: &'static str =
-    "https://f68bcdbc-a90e-4791-8358-b448e0335a86.ap-northeast-1-0.aws.cloud.qdrant.io:6334";
+    "https://08e4c345-42fa-40c7-a269-66b5aabd0b86.eu-central-1-0.aws.cloud.qdrant.io:6334";
 
 pub async fn make_client() -> Result<QdrantClient> {
     let mut config = QdrantClientConfig::from_url(URL);
@@ -21,7 +22,7 @@ pub async fn make_client() -> Result<QdrantClient> {
     if let Some(api_key) = api_key {
         config.set_api_key(&api_key);
     }
-    let client = QdrantClient::new(Some(config)).await?;
+    let client = QdrantClient::new(Some(config))?;
     Ok(client)
 }
 
@@ -48,7 +49,7 @@ pub async fn search(
             ..Default::default()
         })
         .await?;
-    // dbg!(&search_result);
+    debug!("search_result: {:?}", &search_result);
 
     event!(tracing::Level::INFO, "search took {:?}", start.elapsed());
 
@@ -72,8 +73,8 @@ pub async fn save(client: &QdrantClient, collection_name: &str, req: PayloadRequ
     let vector = &output[0];
     let points = vec![PointStruct::new(id.to_string(), vector.clone(), payload)];
 
-    let _response = client.upsert_points(collection_name, points, None).await?;
-    // dbg!(response);
+    let response = client.upsert_points(collection_name, points, None).await?;
+    debug!("response: {:?}", &response);
 
     event!(tracing::Level::INFO, "save took {:?}", start.elapsed());
 
