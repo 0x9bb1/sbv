@@ -1,7 +1,12 @@
-use anyhow::Result;
+use anyhow::{Ok, Result};
 use qdrant_client::client::{QdrantClient, QdrantClientConfig};
 use qdrant_client::prelude::{Payload, PointStruct, SearchPoints};
+use qdrant_client::qdrant::vectors_config::Config;
+use qdrant_client::qdrant::CreateCollection;
+use qdrant_client::qdrant::Distance;
 use qdrant_client::qdrant::ScoredPoint;
+use qdrant_client::qdrant::VectorParams;
+use qdrant_client::qdrant::VectorsConfig;
 
 use crate::embeddings;
 use crate::entity::PayloadRequest;
@@ -9,13 +14,11 @@ use tracing::log::debug;
 use tracing::{event, instrument};
 use uuid::Uuid;
 
-const AK: &'static str = "qdrant_api_key";
-
-const URL: &'static str =
-    "https://08e4c345-42fa-40c7-a269-66b5aabd0b86.eu-central-1-0.aws.cloud.qdrant.io:6334";
+const AK: &'static str = "QDRANT_API_KEY";
 
 pub async fn make_client() -> Result<QdrantClient> {
-    let mut config = QdrantClientConfig::from_url(URL);
+    let url = std::env::var("QDRANT_URL")?;
+    let mut config = QdrantClientConfig::from_url(url.as_str());
     // using an env variable for the API KEY for example
     let api_key = std::env::var(AK).ok();
 
@@ -58,25 +61,44 @@ pub async fn search(
 
 #[instrument(name = "save", skip(client, req))]
 pub async fn save(client: &QdrantClient, collection_name: &str, req: PayloadRequest) -> Result<()> {
-    let start = std::time::Instant::now();
+    let output = embeddings::encode(req.value.clone()).await?;
 
-    let mut payload: Payload = Payload::new();
-    payload.insert(req.key, req.value.clone());
-    let id = Uuid::new_v4();
-    let params = vec![req.value];
-    let output = embeddings::encode(params).await?;
+    let mut points = Vec::new();
+    for (idx, vector) in output.iter().enumerate() {
+        let id = Uuid::new_v4();
+        let mut payload: Payload = Payload::new();
+        let value = match req.value.get(idx) {
+            Some(value) => value.clone(),
+            None => String::from("unknown"),
+        };
+        payload.insert(req.key.clone(), value);
 
-    event!(tracing::Level::INFO, "encode took {:?}", start.elapsed());
+        let point = PointStruct::new(id.to_string(), vector.clone(), payload);
+        points.push(point);
+    }
 
-    let start = std::time::Instant::now();
-
-    let vector = &output[0];
-    let points = vec![PointStruct::new(id.to_string(), vector.clone(), payload)];
-
-    let response = client.upsert_points(collection_name, points, None).await?;
+    let response = client
+        .upsert_points_blocking(collection_name, None, points, None)
+        .await?;
     debug!("response: {:?}", &response);
 
-    event!(tracing::Level::INFO, "save took {:?}", start.elapsed());
+    Ok(())
+}
+
+pub(crate) async fn create(client: &QdrantClient, collection_name: &str) -> Result<()> {
+    client
+        .create_collection(&CreateCollection {
+            collection_name: collection_name.into(),
+            vectors_config: Some(VectorsConfig {
+                config: Some(Config::Params(VectorParams {
+                    size: 1536,
+                    distance: Distance::Cosine.into(),
+                    ..Default::default()
+                })),
+            }),
+            ..Default::default()
+        })
+        .await?;
 
     Ok(())
 }

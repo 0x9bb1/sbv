@@ -11,6 +11,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Debug)]
 pub struct PayloadRequest {
     pub key: String,
+    pub value: Vec<String>,
+    pub limit: Option<u64>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct QueryRequest {
+    pub key: String,
     pub value: String,
     pub limit: Option<u64>,
 }
